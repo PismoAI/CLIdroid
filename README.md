@@ -6,8 +6,22 @@ Transform your Termux into a full-featured development environment with Claude C
 
 ## Quick Install
 
+### Option 1: Public Install (if repo is public)
 ```bash
 curl -sL https://raw.githubusercontent.com/PismoAI/CLIdroid/main/install.sh | bash
+```
+
+### Option 2: Private Install (with GitHub token)
+```bash
+curl -sLH "Authorization: token YOUR_GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/PismoAI/CLIdroid/main/install.sh | bash
+```
+
+### Option 3: Clone and Run
+```bash
+pkg install git -y
+git clone https://github.com/PismoAI/CLIdroid.git
+bash CLIdroid/install.sh
 ```
 
 Then restart Termux and run `claude` to begin.
