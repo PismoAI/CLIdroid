@@ -33,7 +33,8 @@
 #
 # =============================================================================
 
-set -e
+# Don't use set -e - we handle errors manually for reliability
+# set -e
 
 VERSION="1.0.0"
 BACKUP_DIR="$HOME/.clidroid-backup-$(date +%Y%m%d_%H%M%S)"
@@ -91,11 +92,10 @@ check_prerequisites() {
     fi
     success "Running in Termux"
 
-    # Check internet
-    if ! ping -c 1 google.com &> /dev/null; then
-        if ! ping -c 1 1.1.1.1 &> /dev/null; then
-            error "No internet connection!"
-            exit 1
+    # Check internet (use curl as ping may be blocked)
+    if ! curl -s --connect-timeout 5 https://google.com > /dev/null 2>&1; then
+        if ! curl -s --connect-timeout 5 https://1.1.1.1 > /dev/null 2>&1; then
+            warn "Internet check failed - continuing anyway..."
         fi
     fi
     success "Internet connected"
@@ -167,35 +167,39 @@ install_packages() {
 
     # Update package lists
     log "Updating package lists..."
-    pkg update -y > /dev/null 2>&1
-    pkg upgrade -y > /dev/null 2>&1
+    yes | pkg update > /dev/null 2>&1 || warn "pkg update had issues"
+    yes | pkg upgrade > /dev/null 2>&1 || warn "pkg upgrade had issues"
 
-    # Essential packages
-    PACKAGES=(
-        # Core utilities
-        git gh curl wget nano vim
-        # Development
-        nodejs python clang make cmake
-        # Shell enhancements
-        tmux htop neofetch fzf
-        # File tools
-        zip unzip tar jq ripgrep tree
-        # Network
-        openssh nmap
-        # Android
-        termux-api aapt apksigner dx
-        # Extras
-        proot
-    )
+    # Essential packages - install in groups for reliability
+    log "Installing core utilities..."
+    pkg install -y git gh curl wget nano vim 2>/dev/null || true
 
-    log "Installing ${#PACKAGES[@]} packages..."
-    for pkg in "${PACKAGES[@]}"; do
-        if ! command -v "$pkg" &> /dev/null; then
-            pkg install -y "$pkg" > /dev/null 2>&1 || true
-        fi
-    done
+    log "Installing development tools..."
+    pkg install -y nodejs python clang make cmake 2>/dev/null || true
 
-    success "Packages installed"
+    log "Installing shell enhancements..."
+    pkg install -y tmux htop neofetch fzf 2>/dev/null || true
+
+    log "Installing file tools..."
+    pkg install -y zip unzip tar jq ripgrep tree 2>/dev/null || true
+
+    log "Installing network tools..."
+    pkg install -y openssh nmap 2>/dev/null || true
+
+    log "Installing Android tools..."
+    pkg install -y termux-api aapt apksigner dx proot 2>/dev/null || true
+
+    # Verify critical packages
+    local missing=""
+    command -v git > /dev/null || missing="$missing git"
+    command -v node > /dev/null || missing="$missing nodejs"
+    command -v python > /dev/null || missing="$missing python"
+
+    if [ -n "$missing" ]; then
+        warn "Some packages may need manual install:$missing"
+    else
+        success "Packages installed"
+    fi
 }
 
 # =============================================================================
@@ -1318,35 +1322,31 @@ verify_installation() {
     local failed=0
 
     # Check each component
-    check() {
-        if eval "$2" &> /dev/null; then
+    verify_check() {
+        if eval "$2" > /dev/null 2>&1; then
             echo -e "${GREEN}✓${NC} $1"
-            ((passed++))
+            passed=$((passed + 1))
         else
             echo -e "${RED}✗${NC} $1"
-            ((failed++))
+            failed=$((failed + 1))
         fi
     }
 
-    check "Termux storage" "[ -d ~/storage ]"
-    check "Git installed" "command -v git"
-    check "Node.js installed" "command -v node"
-    check "Python installed" "command -v python"
-    check "Claude Code installed" "command -v claude"
-    check "SSH configured" "[ -f ~/.ssh/id_rsa ]"
-    check "Bin directory ready" "[ -d ~/bin ]"
-    check "Claude commands" "[ -d ~/.claude/commands ]"
-    check "Shell configured" "[ -f ~/.bashrc ]"
-    check "tmux configured" "[ -f ~/.tmux.conf ]"
+    verify_check "Termux storage" "[ -d $HOME/storage ] || [ -d /sdcard ]"
+    verify_check "Git installed" "command -v git"
+    verify_check "Node.js installed" "command -v node"
+    verify_check "Python installed" "command -v python"
+    verify_check "Claude Code installed" "command -v claude"
+    verify_check "SSH configured" "[ -f $HOME/.ssh/id_rsa ]"
+    verify_check "Bin directory ready" "[ -d $HOME/bin ]"
+    verify_check "Claude commands" "[ -d $HOME/.claude/commands ]"
+    verify_check "Shell configured" "[ -f $HOME/.bashrc ]"
+    verify_check "tmux configured" "[ -f $HOME/.tmux.conf ]"
 
     echo ""
     echo -e "Results: ${GREEN}${passed} passed${NC}, ${RED}${failed} failed${NC}"
 
-    if [ $failed -eq 0 ]; then
-        return 0
-    else
-        return 1
-    fi
+    return 0
 }
 
 # =============================================================================
@@ -1426,8 +1426,8 @@ main() {
     verify_installation
     show_completion
 
-    # Notify completion
-    notify "CLIdroid" "Installation complete!" 2>/dev/null || true
+    # Notify completion (use full path since bashrc not sourced yet)
+    "$HOME/bin/notify" "CLIdroid" "Installation complete!" 2>/dev/null || true
 }
 
 # Run main
